@@ -9,6 +9,16 @@ A small [Pi coding agent](https://github.com/badlogic/pi-mono) extension that sp
 3. The worker returns a compact JSON handoff. Ambiguity, architectural choices, security-sensitive work, repeated test failures, and missing context trigger one frontier escalation/retry.
 4. The frontier model reviews the plan and worker evidence and returns a final verdict.
 
+## What you see while it runs
+
+The transcript keeps a color-coded activity trail, so ownership is visible at a glance:
+
+- **FRONTIER** — planning, difficult reasoning, escalation decisions, and final review
+- **LOCAL** — repository exploration, edits, commands, tests, and routine debugging
+- **ORCHESTRATOR** — workflow-level failures or control messages
+
+Running work uses a colored dot, completed work a green check, escalations a yellow arrow, and failures a red cross. Each Local Worker entry identifies the task, local model, changed-file count, and passed-check count. The footer also shows the currently active phase. Colors use the active Pi theme rather than hard-coded terminal escape sequences.
+
 The worker has an isolated context window, but shares the current working tree so edits and test results carry across tasks. Tasks are sequential in v1 to avoid conflicting edits.
 
 ## Requirements
@@ -74,6 +84,25 @@ npm run check
 ```
 
 Tests cover configuration merging, structured JSON parsing, plan validation, model references, and JSON-mode output extraction. End-to-end tests require real Pi/provider credentials and are intentionally not part of the default suite.
+
+## Publish to your GitHub account
+
+Create an empty repository named `pi-frontier-local-orchestrator`, then run:
+
+```bash
+git init
+git add .
+git commit -m "Initial Pi planner-executor extension"
+git branch -M main
+git remote add origin git@github.com:YOUR_USERNAME/pi-frontier-local-orchestrator.git
+git push -u origin main
+```
+
+Or, with GitHub CLI already authenticated:
+
+```bash
+gh repo create pi-frontier-local-orchestrator --public --source=. --remote=origin --push
+```
 
 ## Limitations
 
