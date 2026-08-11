@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractJson, finalAssistantText, mergeConfig, modelRef, parseOrchestrateArgs, shouldPromptForModels, validatePlan } from "../extensions/lib/orchestration.js";
+import { extractJson, finalAssistantText, mergeConfig, modelRef, parseOrchestrateArgs, shouldPromptForModels, validatePlan, workerFailureSummary } from "../extensions/lib/orchestration.js";
 
 test("merges nested configuration", () => {
   const config = mergeConfig({ worker: { model: "local-model" }, maxEscalations: 2 });
@@ -14,7 +14,7 @@ test("rejects malformed plan", () => assert.throws(() => validatePlan({ tasks: [
 test("formats model references", () => assert.equal(modelRef({ provider: "p", model: "m" }), "p/m"));
 test("finds last assistant text", () => assert.equal(finalAssistantText([{ role: "assistant", content: [{ type: "text", text: "done" }] }]), "done"));
 test("finds assistant text when json mode uses string content", () => assert.equal(finalAssistantText([{ role: "assistant", content: "done" }]), "done"));
-test("finds assistant text when json mode uses response field", () => assert.equal(finalAssistantText([{ role: "assistant", response: "done" }]), "done"));
+test("finds assistant text when json mode uses response field", () => assert.equal(finalAssistantText([{ response: "done" }]), "done"));
 test("parses per-run model overrides", () => {
   assert.deepEqual(parseOrchestrateArgs('--planner openai/gpt-5 --worker local/qwen "fix the tests"'), {
     goal: "fix the tests",
@@ -27,4 +27,8 @@ test("prompts only when no model source is present", () => {
   assert.equal(shouldPromptForModels({ parsed: {}, sessionModels: {}, hasProjectConfig: false }), true);
   assert.equal(shouldPromptForModels({ parsed: {}, sessionModels: {}, hasProjectConfig: true }), false);
   assert.equal(shouldPromptForModels({ parsed: { planner: { provider: "p", model: "m" } }, sessionModels: {}, hasProjectConfig: false }), false);
+});
+test("surfaces worker diagnostics when no report exists", () => {
+  assert.equal(workerFailureSummary({ output: "", stderr: "", diagnostics: ["model unavailable"], exitCode: 1 }), "model unavailable");
+  assert.equal(workerFailureSummary({ output: "", stderr: "", diagnostics: [], exitCode: 7 }), "Worker exited with code 7 without producing a report");
 });

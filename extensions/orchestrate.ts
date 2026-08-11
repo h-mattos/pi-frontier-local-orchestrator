@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { extractJson, mergeConfig, modelRef, parseOrchestrateArgs, runWorker, shouldPromptForModels, validatePlan } from "./lib/orchestration.js";
+import { extractJson, mergeConfig, modelRef, parseOrchestrateArgs, runWorker, shouldPromptForModels, validatePlan, workerFailureSummary } from "./lib/orchestration.js";
 
 const PLAN_SYSTEM = `You are the Planner in a two-model coding workflow. Return JSON only: {"summary":"...","tasks":[{"id":"T1","title":"...","instructions":"...","acceptanceCriteria":["..."],"risk":"low|medium|high"}]}. Create small sequential tasks with decisive instructions for the Worker. Keep ambiguous architecture, security decisions, and difficult reasoning in the Planner role.`;
 const REVIEW_SYSTEM = `You are the Planner performing final review. Review the original goal, plan, and compact Worker reports. Return concise Markdown with: verdict (PASS or NEEDS_WORK), verified outcomes, remaining risks, and exact next actions. Do not claim checks not shown in the reports.`;
@@ -127,7 +127,18 @@ export default function (pi: ExtensionAPI) {
           logActivity({ actor: "worker", state: "running", title: `Task ${index + 1}/${plan.tasks.length}: ${task.title}`, detail: modelRef(config.worker) });
           let result = await runWorker({ cwd: ctx.cwd, model: modelRef(config.worker), thinking: config.worker.thinking, tools: config.workerTools, prompt: workerPrompt(goal, task, config.escalationTriggers), timeoutMs: config.workerTimeoutMs, signal: ctx.signal });
           let report: any;
-          try { report = extractJson(result.output); } catch { report = { taskId: task.id, status: result.exitCode === 0 ? "failed" : "failed", summary: result.output || result.stderr, filesChanged: [], checks: [], escalationReason: "Worker did not return a valid report" }; }
+          try { report = extractJson(result.output); }
+          catch {
+            const failure = workerFailureSummary(result);
+            report = {
+              taskId: task.id,
+              status: config.maxEscalations > 0 ? "escalate" : "failed",
+              summary: failure,
+              filesChanged: [],
+              checks: [],
+              escalationReason: `Worker did not return a valid report. ${failure}`
+            };
+          }
           if (report.status === "escalate" && config.maxEscalations > 0) {
             ctx.ui.setStatus("orchestrator", `Planner escalation: ${task.title}`);
             logActivity({ actor: "worker", state: "escalated", title: `Asked Planner for help: ${task.title}`, detail: report.escalationReason || report.summary });
@@ -138,7 +149,8 @@ export default function (pi: ExtensionAPI) {
             logActivity({ actor: "planner", state: "completed", title: "Returned revised instructions to Worker" });
             logActivity({ actor: "worker", state: "running", title: `Retrying: ${task.title}`, detail: modelRef(config.worker) });
             result = await runWorker({ cwd: ctx.cwd, model: modelRef(config.worker), thinking: config.worker.thinking, tools: config.workerTools, prompt: workerPrompt(goal, { ...task, instructions: revised.instructions }, config.escalationTriggers), timeoutMs: config.workerTimeoutMs, signal: ctx.signal });
-            try { report = extractJson(result.output); } catch { report = { ...report, status: "failed", summary: result.output || result.stderr }; }
+            try { report = extractJson(result.output); }
+            catch { report = { ...report, status: "failed", summary: workerFailureSummary(result) }; }
           }
           reports.push(report);
           const files = Array.isArray(report.filesChanged) ? report.filesChanged.length : 0;

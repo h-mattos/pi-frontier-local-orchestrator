@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { basename } from "node:path";
 
 export const DEFAULT_CONFIG = {
   planner: { provider: "openai-codex", model: "gpt-5.3-codex" },
@@ -63,43 +65,47 @@ export function validatePlan(plan) {
   return plan;
 }
 
-function contentText(content) {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (typeof part === "string") return part;
-      if (part?.type === "text" && typeof part.text === "string") return part.text;
-      if (typeof part?.content === "string") return part.content;
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
 export function finalAssistantText(messages) {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (message?.role !== "assistant") continue;
-    const text = contentText(message.content || message.text || message.response);
+    if (message?.role && message.role !== "assistant") continue;
+    if (typeof message?.response === "string" && message.response.trim()) return message.response;
+    if (typeof message?.content === "string" && message.content.trim()) return message.content;
+    if (!Array.isArray(message?.content)) continue;
+    const text = message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
     if (text) return text;
   }
   return "";
 }
 
-function textFromJsonEvent(event) {
-  if (event?.message) return contentText(event.message.content || event.message.text || event.message.response);
-  return contentText(event?.content || event?.text || event?.response || event?.delta);
+export function piInvocation(args, explicitCommand) {
+  if (explicitCommand) return { command: explicitCommand, args };
+  const currentScript = process.argv[1];
+  const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
+  if (currentScript && !isBunVirtualScript && existsSync(currentScript)) {
+    return { command: process.execPath, args: [currentScript, ...args] };
+  }
+  const executable = basename(process.execPath).toLowerCase();
+  return /^(node|bun)(\.exe)?$/.test(executable)
+    ? { command: "pi", args }
+    : { command: process.execPath, args };
 }
 
-export function runWorker({ piCommand = "pi", cwd, model, thinking, tools, prompt, timeoutMs, signal }) {
+export function workerFailureSummary(result) {
+  return result.output?.trim()
+    || result.stderr?.trim()
+    || result.diagnostics?.join("\n").trim()
+    || `Worker exited with code ${result.exitCode} without producing a report`;
+}
+
+export function runWorker({ piCommand, cwd, model, thinking, tools, prompt, timeoutMs, signal }) {
   const args = ["--mode", "json", "-p", "--no-session", "--model", model, "--thinking", thinking, "--tools", tools.join(","), prompt];
   return new Promise((resolve, reject) => {
-    const child = spawn(piCommand, args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    const invocation = piInvocation(args, piCommand);
+    const child = spawn(invocation.command, invocation.args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     const messages = [];
-    const eventTexts = [];
+    const diagnostics = [];
     let stderr = "";
-    let stdout = "";
     let buffer = "";
     let settled = false;
     let timer;
@@ -114,14 +120,13 @@ export function runWorker({ piCommand = "pi", cwd, model, thinking, tools, promp
       if (!line.trim()) return;
       try {
         const event = JSON.parse(line);
-        if (event.message?.role === "assistant") messages.push(event.message);
         if ((event.type === "message_end" || event.type === "tool_result_end") && event.message) messages.push(event.message);
-        const text = textFromJsonEvent(event);
-        if (text) eventTexts.push(text);
+        else if (event.type === "message_end" && typeof event.response === "string") messages.push({ role: "assistant", response: event.response });
+        if (event.type === "error") diagnostics.push(event.message || event.error || JSON.stringify(event));
+        if (event.type === "agent_end" && event.error) diagnostics.push(typeof event.error === "string" ? event.error : JSON.stringify(event.error));
       } catch { /* ignore non-JSON diagnostics */ }
     };
     child.stdout.on("data", (chunk) => {
-      stdout += chunk;
       buffer += chunk;
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -131,7 +136,7 @@ export function runWorker({ piCommand = "pi", cwd, model, thinking, tools, promp
     child.on("error", (error) => finish(error));
     child.on("close", (code) => {
       parseLine(buffer);
-      finish(null, { exitCode: code ?? 1, messages, stderr, stdout, output: finalAssistantText(messages) || eventTexts.join("\n") || stdout });
+      finish(null, { exitCode: code ?? 1, messages, stderr, diagnostics, output: finalAssistantText(messages) });
     });
     const abort = () => child.kill("SIGTERM");
     if (signal?.aborted) abort();
