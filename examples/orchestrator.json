@@ -3,5 +3,7 @@
   "worker": { "provider": "llama-cpp", "model": "qwen2.5-coder-14b", "thinking": "off" },
   "maxEscalations": 1,
   "workerTimeoutMs": 900000,
+  "debug": true,
+  "debugLogPath": ".pi/orchestrator-debug.log",
   "workerTools": ["read", "grep", "find", "ls", "bash", "edit", "write"]
 }

@@ -1,12 +1,14 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { basename } from "node:path";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 export const DEFAULT_CONFIG = {
   planner: { provider: "openai-codex", model: "gpt-5.3-codex" },
   worker: { provider: "llama-cpp", model: "qwen2.5-coder-14b", thinking: "off" },
   maxEscalations: 1,
   workerTimeoutMs: 900000,
+  debug: true,
+  debugLogPath: ".pi/orchestrator-debug.log",
   workerTools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
   escalationTriggers: ["ambiguous requirement", "architecture decision", "security-sensitive change", "repeated test failure", "context insufficient"]
 };
@@ -98,12 +100,44 @@ export function workerFailureSummary(result) {
     || `Worker exited with code ${result.exitCode} without producing a report`;
 }
 
-export function runWorker({ piCommand, cwd, model, thinking, tools, prompt, timeoutMs, signal }) {
+function preview(value, limit = 4000) {
+  const text = String(value || "");
+  return text.length <= limit ? text : `${text.slice(0, limit)}\n[truncated ${text.length - limit} characters]`;
+}
+
+function writeDebugLog(cwd, configuredPath, record) {
+  const logPath = isAbsolute(configuredPath) ? configuredPath : join(cwd, configuredPath);
+  mkdirSync(dirname(logPath), { recursive: true });
+  appendFileSync(logPath, `${JSON.stringify(record, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  return logPath;
+}
+
+export function runWorker({ piCommand, cwd, model, thinking, tools, prompt, timeoutMs, signal, debug = false, debugLogPath = ".pi/orchestrator-debug.log" }) {
   const args = ["-p", "--no-session", "--model", model, "--thinking", thinking, "--tools", tools.join(","), prompt];
   return new Promise((resolve, reject) => {
     const invocation = piInvocation(args, piCommand);
-    const child = spawn(invocation.command, invocation.args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    const startedAt = new Date().toISOString();
     const diagnostics = [];
+    let resolvedLogPath;
+    if (debug) {
+      try {
+        resolvedLogPath = writeDebugLog(cwd, debugLogPath, {
+          event: "worker_start",
+          startedAt,
+          cwd,
+          model,
+          thinking,
+          tools,
+          command: invocation.command,
+          args: invocation.args.map((arg, index) => index === invocation.args.length - 1 ? `<worker prompt: ${prompt.length} characters>` : arg),
+          processExecPath: process.execPath,
+          processArgv: process.argv.slice(0, 3)
+        });
+      } catch (error) {
+        diagnostics.push(`Unable to write debug log: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    const child = spawn(invocation.command, invocation.args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
     let stdout = "";
     let settled = false;
@@ -117,9 +151,31 @@ export function runWorker({ piCommand, cwd, model, thinking, tools, prompt, time
     };
     child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", (error) => finish(error));
+    child.on("error", (error) => {
+      if (debug && resolvedLogPath) {
+        try { writeDebugLog(cwd, debugLogPath, { event: "worker_process_error", startedAt, endedAt: new Date().toISOString(), error: error.message }); }
+        catch { /* do not mask the process error */ }
+      }
+      finish(error);
+    });
     child.on("close", (code) => {
-      finish(null, { exitCode: code ?? 1, stderr, diagnostics, output: stdout.trim() });
+      const result = { exitCode: code ?? 1, stderr, diagnostics, output: stdout.trim(), debugLogPath: resolvedLogPath };
+      if (debug && resolvedLogPath) {
+        try {
+          writeDebugLog(cwd, debugLogPath, {
+            event: "worker_end",
+            startedAt,
+            endedAt: new Date().toISOString(),
+            exitCode: result.exitCode,
+            stdoutBytes: Buffer.byteLength(stdout),
+            stderrBytes: Buffer.byteLength(stderr),
+            stdoutPreview: preview(stdout),
+            stderrPreview: preview(stderr),
+            diagnostics
+          });
+        } catch { /* logging must not change workflow behavior */ }
+      }
+      finish(null, result);
     });
     const abort = () => child.kill("SIGTERM");
     if (signal?.aborted) abort();

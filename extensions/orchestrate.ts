@@ -30,10 +30,11 @@ function workerPrompt(goal: string, task: any, triggers: string[]) {
 }
 
 function workerFailureSummary(result: any) {
-  return result.output?.trim()
+  const summary = result.output?.trim()
     || result.stderr?.trim()
     || result.diagnostics?.join("\n").trim()
     || `Worker exited with code ${result.exitCode} without producing a report`;
+  return result.debugLogPath ? `${summary} Debug log: ${result.debugLogPath}` : summary;
 }
 
 type Activity = {
@@ -132,7 +133,7 @@ export default function (pi: ExtensionAPI) {
         for (const [index, task] of plan.tasks.entries()) {
           ctx.ui.setStatus("orchestrator", `Local worker ${index + 1}/${plan.tasks.length}: ${task.title}`);
           logActivity({ actor: "worker", state: "running", title: `Task ${index + 1}/${plan.tasks.length}: ${task.title}`, detail: modelRef(config.worker) });
-          let result = await runWorker({ cwd: ctx.cwd, model: modelRef(config.worker), thinking: config.worker.thinking, tools: config.workerTools, prompt: workerPrompt(goal, task, config.escalationTriggers), timeoutMs: config.workerTimeoutMs, signal: ctx.signal });
+          let result = await runWorker({ cwd: ctx.cwd, model: modelRef(config.worker), thinking: config.worker.thinking, tools: config.workerTools, prompt: workerPrompt(goal, task, config.escalationTriggers), timeoutMs: config.workerTimeoutMs, signal: ctx.signal, debug: config.debug, debugLogPath: config.debugLogPath });
           let report: any;
           try { report = extractJson(result.output); }
           catch {
@@ -155,7 +156,7 @@ export default function (pi: ExtensionAPI) {
             const revised = extractJson(text);
             logActivity({ actor: "planner", state: "completed", title: "Returned revised instructions to Worker" });
             logActivity({ actor: "worker", state: "running", title: `Retrying: ${task.title}`, detail: modelRef(config.worker) });
-            result = await runWorker({ cwd: ctx.cwd, model: modelRef(config.worker), thinking: config.worker.thinking, tools: config.workerTools, prompt: workerPrompt(goal, { ...task, instructions: revised.instructions }, config.escalationTriggers), timeoutMs: config.workerTimeoutMs, signal: ctx.signal });
+            result = await runWorker({ cwd: ctx.cwd, model: modelRef(config.worker), thinking: config.worker.thinking, tools: config.workerTools, prompt: workerPrompt(goal, { ...task, instructions: revised.instructions }, config.escalationTriggers), timeoutMs: config.workerTimeoutMs, signal: ctx.signal, debug: config.debug, debugLogPath: config.debugLogPath });
             try { report = extractJson(result.output); }
             catch { report = { ...report, status: "failed", summary: workerFailureSummary(result) }; }
           }

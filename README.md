@@ -96,6 +96,8 @@ To keep the same Planner and Worker for a repository, create `.pi/orchestrator.j
   },
   "maxEscalations": 1,
   "workerTimeoutMs": 900000,
+  "debug": true,
+  "debugLogPath": ".pi/orchestrator-debug.log",
   "workerTools": ["read", "grep", "find", "ls", "bash", "edit", "write"]
 }
 ```
@@ -110,10 +112,16 @@ Use the exact provider and model IDs shown by Pi’s `/model` command. Commit th
 - `worker.provider`, `worker.model`, `worker.thinking`
 - `workerTools`: Pi tools exposed to the local worker
 - `workerTimeoutMs`: per-worker timeout
+- `debug`: write redacted Worker subprocess diagnostics; currently defaults to `true`
+- `debugLogPath`: log location relative to the repository (default `.pi/orchestrator-debug.log`)
 - `maxEscalations`: currently `0` or any positive value (v1 performs at most one retry per task)
 - `escalationTriggers`: phrases included in the worker policy
 
 Project-local extensions and configuration execute code and should only be used in trusted repositories. The spawned worker intentionally uses the same working tree and can edit files and run shell commands.
+
+### Debugging Worker startup
+
+Diagnostic logging is enabled by default while the extension is stabilizing. After a Worker failure, inspect `.pi/orchestrator-debug.log` in the repository where Pi is running. It records the executable, redacted arguments, working directory, selected model/tools, exit code, byte counts, and truncated stdout/stderr previews. It never records environment variables or the Worker prompt text. Set `"debug": false` to disable the file.
 
 ## Tests
 
