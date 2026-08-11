@@ -63,14 +63,33 @@ export function validatePlan(plan) {
   return plan;
 }
 
+function contentText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part?.type === "text" && typeof part.text === "string") return part.text;
+      if (typeof part?.content === "string") return part.content;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function finalAssistantText(messages) {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
-    const text = message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+    if (message?.role !== "assistant") continue;
+    const text = contentText(message.content || message.text || message.response);
     if (text) return text;
   }
   return "";
+}
+
+function textFromJsonEvent(event) {
+  if (event?.message) return contentText(event.message.content || event.message.text || event.message.response);
+  return contentText(event?.content || event?.text || event?.response || event?.delta);
 }
 
 export function runWorker({ piCommand = "pi", cwd, model, thinking, tools, prompt, timeoutMs, signal }) {
@@ -78,7 +97,9 @@ export function runWorker({ piCommand = "pi", cwd, model, thinking, tools, promp
   return new Promise((resolve, reject) => {
     const child = spawn(piCommand, args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     const messages = [];
+    const eventTexts = [];
     let stderr = "";
+    let stdout = "";
     let buffer = "";
     let settled = false;
     let timer;
@@ -93,10 +114,14 @@ export function runWorker({ piCommand = "pi", cwd, model, thinking, tools, promp
       if (!line.trim()) return;
       try {
         const event = JSON.parse(line);
+        if (event.message?.role === "assistant") messages.push(event.message);
         if ((event.type === "message_end" || event.type === "tool_result_end") && event.message) messages.push(event.message);
+        const text = textFromJsonEvent(event);
+        if (text) eventTexts.push(text);
       } catch { /* ignore non-JSON diagnostics */ }
     };
     child.stdout.on("data", (chunk) => {
+      stdout += chunk;
       buffer += chunk;
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -106,7 +131,7 @@ export function runWorker({ piCommand = "pi", cwd, model, thinking, tools, promp
     child.on("error", (error) => finish(error));
     child.on("close", (code) => {
       parseLine(buffer);
-      finish(null, { exitCode: code ?? 1, messages, stderr, output: finalAssistantText(messages) });
+      finish(null, { exitCode: code ?? 1, messages, stderr, stdout, output: finalAssistantText(messages) || eventTexts.join("\n") || stdout });
     });
     const abort = () => child.kill("SIGTERM");
     if (signal?.aborted) abort();

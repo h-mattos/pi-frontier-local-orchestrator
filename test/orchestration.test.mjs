@@ -13,6 +13,8 @@ test("validates structured plan", () => assert.equal(validatePlan({ tasks: [{ id
 test("rejects malformed plan", () => assert.throws(() => validatePlan({ tasks: [] })));
 test("formats model references", () => assert.equal(modelRef({ provider: "p", model: "m" }), "p/m"));
 test("finds last assistant text", () => assert.equal(finalAssistantText([{ role: "assistant", content: [{ type: "text", text: "done" }] }]), "done"));
+test("finds assistant text when json mode uses string content", () => assert.equal(finalAssistantText([{ role: "assistant", content: "done" }]), "done"));
+test("finds assistant text when json mode uses response field", () => assert.equal(finalAssistantText([{ role: "assistant", response: "done" }]), "done"));
 test("parses per-run model overrides", () => {
   assert.deepEqual(parseOrchestrateArgs('--planner openai/gpt-5 --worker local/qwen "fix the tests"'), {
     goal: "fix the tests",
