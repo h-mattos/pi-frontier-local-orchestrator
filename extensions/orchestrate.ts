@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { extractJson, mergeConfig, modelRef, parseOrchestrateArgs, runWorker, shouldPromptForModels, validatePlan, workerFailureSummary } from "./lib/orchestration.js";
+import { extractJson, mergeConfig, modelRef, parseOrchestrateArgs, runWorker, shouldPromptForModels, validatePlan } from "./lib/orchestration.js";
 
 const PLAN_SYSTEM = `You are the Planner in a two-model coding workflow. Return JSON only: {"summary":"...","tasks":[{"id":"T1","title":"...","instructions":"...","acceptanceCriteria":["..."],"risk":"low|medium|high"}]}. Create small sequential tasks with decisive instructions for the Worker. Keep ambiguous architecture, security decisions, and difficult reasoning in the Planner role.`;
 const REVIEW_SYSTEM = `You are the Planner performing final review. Review the original goal, plan, and compact Worker reports. Return concise Markdown with: verdict (PASS or NEEDS_WORK), verified outcomes, remaining risks, and exact next actions. Do not claim checks not shown in the reports.`;
@@ -27,6 +27,13 @@ async function loadConfig(cwd: string) {
 
 function workerPrompt(goal: string, task: any, triggers: string[]) {
   return `You are the local executor. Work only on this task in the current repository.\n\nOverall goal: ${goal}\nTask ${task.id}: ${task.title}\nInstructions: ${task.instructions}\nAcceptance criteria:\n- ${task.acceptanceCriteria.join("\n- ")}\n\nUse repository tools, make changes, and run relevant checks. If blocked or if any escalation trigger applies (${triggers.join(", ")}), stop before guessing. End with exactly one compact JSON report in a fenced json block: {"taskId":"${task.id}","status":"completed|escalate|failed","summary":"...","filesChanged":["..."],"checks":[{"command":"...","result":"pass|fail|not_run"}],"escalationReason":""}.`;
+}
+
+function workerFailureSummary(result: any) {
+  return result.output?.trim()
+    || result.stderr?.trim()
+    || result.diagnostics?.join("\n").trim()
+    || `Worker exited with code ${result.exitCode} without producing a report`;
 }
 
 type Activity = {
