@@ -1,7 +1,7 @@
 {
   "name": "pi-frontier-local-orchestrator",
   "version": "0.1.0",
-  "description": "Planner/executor orchestration for Pi using a frontier planner and a local worker",
+  "description": "Two-model Planner/Worker orchestration for the Pi coding agent",
   "type": "module",
   "license": "MIT",
   "keywords": ["pi-package", "pi", "coding-agent", "llama.cpp", "planner-executor", "llm"],
@@ -19,5 +19,5 @@
     "@earendil-works/pi-tui": "*"
   },
   "engines": { "node": ">=20" },
-  "repository": { "type": "git", "url": "git+https://github.com/YOUR_USERNAME/pi-frontier-local-orchestrator.git" }
+  "repository": { "type": "git", "url": "git+https://github.com/h-mattos/pi-frontier-local-orchestrator.git" }
 }

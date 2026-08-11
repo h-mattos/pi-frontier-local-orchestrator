@@ -1,23 +1,23 @@
-# Pi Frontier/Local Orchestrator
+# Pi Two-Model Orchestrator
 
-A small [Pi coding agent](https://github.com/badlogic/pi-mono) extension that spends frontier-model tokens where they matter and delegates routine repository work to a local OpenAI-compatible model.
+A small [Pi coding agent](https://github.com/badlogic/pi-mono) extension that lets you choose any available model as the Planner and any available model as the Worker. A common setup uses ChatGPT/Codex for planning and a local OpenAI-compatible model for execution, but that pairing is not required.
 
 `/orchestrate` runs a sequential planner/executor/reviewer workflow:
 
-1. A ChatGPT/Codex model creates a structured task plan.
-2. Each task runs in a fresh, ephemeral Pi subprocess using the local model and normal repository tools.
-3. The worker returns a compact JSON handoff. Ambiguity, architectural choices, security-sensitive work, repeated test failures, and missing context trigger one frontier escalation/retry.
-4. The frontier model reviews the plan and worker evidence and returns a final verdict.
+1. Your chosen Planner model creates a structured task plan.
+2. Each task runs in a fresh, ephemeral Pi subprocess using your chosen Worker model and normal repository tools.
+3. The Worker returns a compact JSON handoff. Ambiguity, architectural choices, security-sensitive work, repeated test failures, and missing context trigger one Planner escalation/retry.
+4. The Planner reviews the plan and Worker evidence and returns a final verdict.
 
 ## What you see while it runs
 
 The transcript keeps a color-coded activity trail, so ownership is visible at a glance:
 
-- **FRONTIER** — planning, difficult reasoning, escalation decisions, and final review
-- **LOCAL** — repository exploration, edits, commands, tests, and routine debugging
+- **PLANNER** — planning, difficult reasoning, escalation decisions, and final review
+- **WORKER** — repository exploration, edits, commands, tests, and routine debugging
 - **ORCHESTRATOR** — workflow-level failures or control messages
 
-Running work uses a colored dot, completed work a green check, escalations a yellow arrow, and failures a red cross. Each Local Worker entry identifies the task, local model, changed-file count, and passed-check count. The footer also shows the currently active phase. Colors use the active Pi theme rather than hard-coded terminal escape sequences.
+Running work uses a colored dot, completed work a green check, escalations a yellow arrow, and failures a red cross. Each Worker entry identifies the task, selected model, changed-file count, and passed-check count. The footer also shows the currently active phase. Colors use the active Pi theme rather than hard-coded terminal escape sequences.
 
 The worker has an isolated context window, but shares the current working tree so edits and test results carry across tasks. Tasks are sequential in v1 to avoid conflicting edits.
 
@@ -25,8 +25,8 @@ The worker has an isolated context window, but shares the current working tree s
 
 - Pi with package/extension support
 - Node.js 20+
-- ChatGPT/Codex authenticated in Pi (`/login`)
-- A local OpenAI-compatible server such as llama.cpp
+- Any two models available in Pi (they may use the same or different providers)
+- Authentication or endpoint configuration required by those providers
 
 This extension follows Pi's current official APIs: `registerCommand`, `modelRegistry.find/complete`, custom messages, native provider configuration, and isolated `pi --mode json -p --no-session` workers.
 
@@ -51,10 +51,10 @@ For local development:
 pi install /absolute/path/to/pi-frontier-local-orchestrator
 ```
 
-After publishing to GitHub:
+From GitHub:
 
 ```bash
-pi install git:github.com/YOUR_USERNAME/pi-frontier-local-orchestrator
+pi install git:github.com/h-mattos/pi-frontier-local-orchestrator
 ```
 
 Restart Pi or run `/reload`, then:
@@ -62,6 +62,45 @@ Restart Pi or run `/reload`, then:
 ```text
 /orchestrate add input validation to the signup endpoint and cover it with tests
 ```
+
+To choose from every model currently available in Pi, run:
+
+```text
+/orchestrate-models
+```
+
+The two selections apply for the current Pi session. If you run `/orchestrate` without selecting models and the project has no `.pi/orchestrator.json`, the same picker opens automatically before planning begins.
+
+You can also override either model for one run:
+
+```text
+/orchestrate --planner openai-codex/gpt-5.3-codex --worker llama-cpp/qwen2.5-coder-14b fix the signup tests
+```
+
+Model IDs may contain additional slashes. Selection priority is: command-line override, session picker, `.pi/orchestrator.json`, then built-in example defaults.
+
+### Persistent model selection
+
+To keep the same Planner and Worker for a repository, create `.pi/orchestrator.json` in that repository:
+
+```json
+{
+  "planner": {
+    "provider": "openai-codex",
+    "model": "gpt-5.3-codex"
+  },
+  "worker": {
+    "provider": "llama-cpp",
+    "model": "qwen2.5-coder-14b",
+    "thinking": "off"
+  },
+  "maxEscalations": 1,
+  "workerTimeoutMs": 900000,
+  "workerTools": ["read", "grep", "find", "ls", "bash", "edit", "write"]
+}
+```
+
+Use the exact provider and model IDs shown by Pi’s `/model` command. Commit this file when the whole team should share the pairing, or add it to `.gitignore` when it is specific to one machine.
 
 ## Configuration
 
@@ -87,27 +126,28 @@ Tests cover configuration merging, structured JSON parsing, plan validation, mod
 
 ## Publish to your GitHub account
 
-Create an empty repository named `pi-frontier-local-orchestrator`, then run:
+The repository is [github.com/h-mattos/pi-frontier-local-orchestrator](https://github.com/h-mattos/pi-frontier-local-orchestrator). To push this local version:
 
 ```bash
 git init
 git add .
 git commit -m "Initial Pi planner-executor extension"
 git branch -M main
-git remote add origin git@github.com:YOUR_USERNAME/pi-frontier-local-orchestrator.git
+git remote add origin git@github.com:h-mattos/pi-frontier-local-orchestrator.git
 git push -u origin main
 ```
 
-Or, with GitHub CLI already authenticated:
+If the `origin` remote already exists, update it instead:
 
 ```bash
-gh repo create pi-frontier-local-orchestrator --public --source=. --remote=origin --push
+git remote set-url origin git@github.com:h-mattos/pi-frontier-local-orchestrator.git
+git push -u origin main
 ```
 
 ## Limitations
 
 - v1 executes tasks sequentially and allows one escalation retry per task.
-- Final review uses compact reports, not the worker's full transcript. This controls frontier-token use but relies on accurate worker reporting.
+- Final review uses compact reports, not the Worker's full transcript. This controls Planner-token use but relies on accurate Worker reporting.
 - The extension does not commit, push, or create branches.
 
 ## License

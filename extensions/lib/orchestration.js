@@ -24,6 +24,28 @@ export function modelRef(model) {
   return `${model.provider}/${model.model}`;
 }
 
+export function parseOrchestrateArgs(input) {
+  const tokens = input.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((token) => token.replace(/^"|"$/g, "")) || [];
+  const overrides = {};
+  const goal = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if ((tokens[i] === "--planner" || tokens[i] === "--worker") && tokens[i + 1]) {
+      const role = tokens[i].slice(2);
+      const ref = tokens[++i];
+      const slash = ref.indexOf("/");
+      if (slash < 1 || slash === ref.length - 1) throw new Error(`${tokens[i - 1]} must be provider/model`);
+      overrides[role] = { provider: ref.slice(0, slash), model: ref.slice(slash + 1) };
+    } else {
+      goal.push(tokens[i]);
+    }
+  }
+  return { goal: goal.join(" ").trim(), ...overrides };
+}
+
+export function shouldPromptForModels({ parsed, sessionModels, hasProjectConfig }) {
+  return !parsed.planner && !parsed.worker && !sessionModels.planner && !sessionModels.worker && !hasProjectConfig;
+}
+
 export function extractJson(text) {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced ? fenced[1] : text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
