@@ -1,6 +1,6 @@
 {
   "name": "pi-frontier-local-orchestrator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Two-model Planner/Worker orchestration for the Pi coding agent",
   "type": "module",
   "license": "MIT",

@@ -28,7 +28,7 @@ The worker has an isolated context window, but shares the current working tree s
 - Any two models available in Pi (they may use the same or different providers)
 - Authentication or endpoint configuration required by those providers
 
-This extension follows Pi's current official APIs: `registerCommand`, `modelRegistry.find/complete`, custom messages, native provider configuration, and isolated `pi --mode json -p --no-session` workers.
+This extension follows Pi's current official APIs: `registerCommand`, `modelRegistry.find/complete`, custom messages, native provider configuration, and isolated `pi -p --no-session` workers. Workers use plain one-shot output because the orchestrator only needs their final compact report; this avoids coupling the extension to JSON event-stream details.
 
 ## Configure models
 
@@ -122,7 +122,7 @@ npm test
 npm run check
 ```
 
-Tests cover configuration merging, structured JSON parsing, plan validation, model references, and JSON-mode output extraction. End-to-end tests require real Pi/provider credentials and are intentionally not part of the default suite.
+Tests cover configuration merging, structured report parsing, plan validation, model references, output compatibility, and worker diagnostics. End-to-end tests require real Pi/provider credentials and are intentionally not part of the default suite.
 
 ## Publish to your GitHub account
 

@@ -99,14 +99,13 @@ export function workerFailureSummary(result) {
 }
 
 export function runWorker({ piCommand, cwd, model, thinking, tools, prompt, timeoutMs, signal }) {
-  const args = ["--mode", "json", "-p", "--no-session", "--model", model, "--thinking", thinking, "--tools", tools.join(","), prompt];
+  const args = ["-p", "--no-session", "--model", model, "--thinking", thinking, "--tools", tools.join(","), prompt];
   return new Promise((resolve, reject) => {
     const invocation = piInvocation(args, piCommand);
     const child = spawn(invocation.command, invocation.args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
-    const messages = [];
     const diagnostics = [];
     let stderr = "";
-    let buffer = "";
+    let stdout = "";
     let settled = false;
     let timer;
     const finish = (error, result) => {
@@ -116,27 +115,11 @@ export function runWorker({ piCommand, cwd, model, thinking, tools, prompt, time
       signal?.removeEventListener("abort", abort);
       error ? reject(error) : resolve(result);
     };
-    const parseLine = (line) => {
-      if (!line.trim()) return;
-      try {
-        const event = JSON.parse(line);
-        if ((event.type === "message_end" || event.type === "tool_result_end") && event.message) messages.push(event.message);
-        else if (event.type === "message_end" && typeof event.response === "string") messages.push({ role: "assistant", response: event.response });
-        if (event.type === "error") diagnostics.push(event.message || event.error || JSON.stringify(event));
-        if (event.type === "agent_end" && event.error) diagnostics.push(typeof event.error === "string" ? event.error : JSON.stringify(event.error));
-      } catch { /* ignore non-JSON diagnostics */ }
-    };
-    child.stdout.on("data", (chunk) => {
-      buffer += chunk;
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      lines.forEach(parseLine);
-    });
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.on("error", (error) => finish(error));
     child.on("close", (code) => {
-      parseLine(buffer);
-      finish(null, { exitCode: code ?? 1, messages, stderr, diagnostics, output: finalAssistantText(messages) });
+      finish(null, { exitCode: code ?? 1, stderr, diagnostics, output: stdout.trim() });
     });
     const abort = () => child.kill("SIGTERM");
     if (signal?.aborted) abort();
